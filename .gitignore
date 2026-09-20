@@ -1,0 +1,20 @@
+# Folder/file yang dilarang dipush
+.venv/
+**/__pycache__/
+*.pyc
+
+# Cache & Local Storage
+.cache/
+~/.cache/
+
+# Model Weights & File Besar
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
+
+# Eksklusi Sementara (FAISS Index & Processed Data)
+# Nanti disesuaikan jika ingin dipush atau ditaruh di Kaggle
+data/index/
+# data/processed/  # Hapus tanda # jika data/processed terlalu besar (>100MB)

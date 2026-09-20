@@ -1,0 +1,113 @@
+# ============================================================
+# AniRAG-v2 — Central Configuration
+# Phase 4: Embedding + FAISS Indexing
+# ============================================================
+# Ubah nilai konfigurasi di sini, bukan di dalam source code.
+# Baseline dataset final: 15,966 anime.
+# ============================================================
+
+data:
+  raw_path: "data/raw/anime_dataset.csv"
+  filtered_path: "data/processed/dataset_anime_clean.csv"
+  documents_path: "data/processed/anime_documents.jsonl"
+  filtering_report_path: "data/processed/filtering_report.json"
+  index_dir: "data/index"
+
+# ============================================================
+# Dataset / Corpus Invariants
+# ============================================================
+
+corpus:
+  expected_documents: 15966
+  expected_unique_mal_id: 15966
+
+# ============================================================
+# Content Policy
+# ============================================================
+
+content_policy:
+  block_tag:
+    - "hentai"
+    - "erotica"
+
+  allow_tag:
+    - "ecchi"
+
+# ============================================================
+# Embedding
+# ============================================================
+
+embedding:
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"
+  expected_dimension: 384
+
+  # Embedding diproses pada device yang tersedia:
+  # CPU jika tidak ada CUDA, GPU jika CUDA tersedia.
+  device: "auto"
+
+  batch_size: 64
+
+  normalize_embeddings: true
+
+# ============================================================
+# FAISS
+# ============================================================
+
+faiss:
+  index_type: "IndexFlatIP"
+  metric: "inner_product"
+
+# ============================================================
+# Retrieval
+# ============================================================
+
+retrieval:
+  top_k_candidates:
+    - 3
+    - 5
+    - 10
+
+  top_k_final: 5
+
+# ============================================================
+# LLM
+# ============================================================
+
+llm:
+  model_name: "meta-llama/Llama-3.2-3B-Instruct"
+  language: "id"
+
+  # Catatan:
+  # Konfigurasi quantization final akan ditentukan pada
+  # implementasi loader LLM / deployment, bukan Phase 4.
+  quantization: "4-bit-bnb"
+
+# ============================================================
+# Enrichment
+# ============================================================
+
+enrichment:
+  jikan_base_url: "https://api.jikan.moe/v4"
+  rate_limit_per_second: 3
+  rate_limit_per_minute: 60
+  cache_dir: "data/api_cache"
+
+# ============================================================
+# Evaluation
+# ============================================================
+# Konfigurasi ini belum digunakan oleh Phase 4.
+# Nilai akan disesuaikan kembali saat Phase 8–14.
+
+evaluation:
+  test_set_size: 300
+
+  categories:
+    similarity: 50
+    factual: 50
+    attribute_filtering: 50
+    multi_turn_refinement: 50
+    out_of_scope: 50
+    adversarial: 50
+
+  llm_judge_model: "gemini-3.1-flash-lite"
+  human_eval_sample_size: 15
