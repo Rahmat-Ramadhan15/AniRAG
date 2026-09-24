@@ -88,19 +88,39 @@ def _valid_text(value: Any) -> str | None:
 
 def parse_structured_answer(answer_text: str) -> list[dict[str, str]]:
     """
-    Parse jawaban LLM berformat:
-        ### Judul
-        Plot: ...
-        Alasan: ...
+    Parser fleksibel: Mendeteksi judul anime dari format '### Judul',
+    format penomoran ('1. Judul - ...'), maupun bullet point ('- Judul: ...').
     """
-    blocks = re.split(r"^###\s+", answer_text, flags=re.MULTILINE)
     parsed = []
-    for block in blocks[1:]:
-        lines = block.strip().split("\n", 1)
-        title = lines[0].strip().strip("[]")
-        body = lines[1].strip() if len(lines) > 1 else ""
-        if title:
-            parsed.append({"title": title, "body": body})
+    
+    # 1. Coba parse jika LLM menggunakan '### Judul'
+    if "### " in answer_text:
+        blocks = re.split(r"^###\s+", answer_text, flags=re.MULTILINE)
+        for block in blocks[1:]:
+            lines = block.strip().split("\n", 1)
+            title = lines[0].strip().strip("[]*")
+            body = lines[1].strip() if len(lines) > 1 else ""
+            if title:
+                parsed.append({"title": title, "body": body})
+        if parsed:
+            return parsed
+
+    # 2. Fallback: Parse format baris/daftar (misal "1. Judul - Deskripsi" atau "Judul - Deskripsi")
+    lines = answer_text.strip().split("\n")
+    for line in lines:
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+        
+        # Pola regex untuk menangkap: [nomor/bullet] [Judul Anime] [- / : / —] [Deskripsi]
+        match = re.match(r"^(?:\d+[\.\)]|\-|\*|\•)?\s*\*?\*?([^\:\-\—\n]+)\*?\*?\s*[\:\-\—]\s*(.+)$", line_clean)
+        if match:
+            title = match.group(1).strip().strip("*[]")
+            body = match.group(2).strip()
+            # Hindari kata umum terambil sebagai judul
+            if len(title) > 2 and title.lower() not in ["berikut", "catatan", "semoga"]:
+                parsed.append({"title": title, "body": body})
+
     return parsed
 
 
