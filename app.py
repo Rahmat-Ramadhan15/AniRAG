@@ -88,34 +88,34 @@ def _valid_text(value: Any) -> str | None:
 
 def parse_structured_answer(answer_text: str) -> list[dict[str, str]]:
     """
-    Mengekstrak blok rekomendasi berformat:
-        ### Judul
-        Plot: ...
-        Alasan: ...
-    Serta membersihkan kata yang terpotong ke baris baru.
+    Parse jawaban LLM dengan pemisahan judul, plot, dan alasan yang presisi.
     """
     if not answer_text:
         return []
 
-    # Rapikan kata yang terpotong baris baru secara tidak sengaja oleh LLM
-    text_clean = re.sub(r'(\w+)\n(\w+)', r'\1 \2', answer_text)
-
     parsed = []
 
-    # 1. Parsing jika LLM menggunakan header '### '
-    if "### " in text_clean:
-        blocks = re.split(r"^###\s+", text_clean, flags=re.MULTILINE)
+    # 1. Parsing jika LLM menggunakan '### Judul'
+    if "### " in answer_text:
+        blocks = re.split(r"^###\s+", answer_text, flags=re.MULTILINE)
         for block in blocks[1:]:
             lines = block.strip().split("\n", 1)
             title = lines[0].strip().strip("[]*")
             body = lines[1].strip() if len(lines) > 1 else ""
+            
+            # Jika 'Plot:' menyatu di baris judul (misal: "Attack on Titan Plot: ...")
+            match_inline = re.match(r"^(.*?)\s*(Plot\s*:.*)$", title, re.IGNORECASE)
+            if match_inline:
+                title = match_inline.group(1).strip()
+                body = match_inline.group(2).strip() + ("\n" + body if body else "")
+
             if title:
                 parsed.append({"title": title, "body": body})
         if parsed:
             return parsed
 
-    # 2. Fallback: Parsing format daftar/baris biasa (misal: "1. Judul - Deskripsi")
-    lines = text_clean.strip().split("\n")
+    # 2. Fallback: Parsing format baris biasa/daftar (misal: "1. Attack on Titan - Plot: ...")
+    lines = answer_text.strip().split("\n")
     for line in lines:
         line_item = line.strip()
         if not line_item:
@@ -125,6 +125,10 @@ def parse_structured_answer(answer_text: str) -> list[dict[str, str]]:
         if match:
             title = match.group(1).strip().strip("*[]")
             body = match.group(2).strip()
+            
+            # Bersihkan kata 'Plot' jika masih menempel di judul
+            title = re.sub(r'\s*Plot$', '', title, flags=re.IGNORECASE).strip()
+            
             if len(title) > 2 and title.lower() not in ["berikut", "catatan", "semoga", "rekomendasi"]:
                 parsed.append({"title": title, "body": body})
 
@@ -133,26 +137,31 @@ def parse_structured_answer(answer_text: str) -> list[dict[str, str]]:
 
 def match_to_retrieved(parsed_title: str, retrieved: list[dict[str, Any]]) -> dict[str, Any] | None:
     """
-    Pencocokan judul yang lebih toleran terhadap substring dan perbandingan nama.
+    Pencocokan judul yang lebih toleran terhadap substring dan karakter khusus.
     """
     if not parsed_title:
         return None
-        
-    title_clean = re.sub(r'[^\w\s]', '', parsed_title.lower()).strip()
-    
+
+    # Bersihkan imbuhan 'Plot' atau 'Alasan' jika lolos
+    clean_title = re.sub(r'\b(Plot|Alasan)\b', '', parsed_title, flags=re.IGNORECASE)
+    title_clean = re.sub(r'[^\w\s]', '', clean_title.lower()).strip()
+
+    if not title_clean:
+        return None
+
     for d in retrieved:
         meta = d.get("metadata", d) if isinstance(d, dict) else {}
         candidates = [meta.get("title"), meta.get("title_english")]
-        
+
         for c in candidates:
             if not c:
                 continue
             c_clean = re.sub(r'[^\w\s]', '', str(c).lower()).strip()
-            
+
             # Cek kecocokan persis atau substring
             if c_clean == title_clean or c_clean in title_clean or title_clean in c_clean:
                 return meta
-                
+
     return None
 
 
