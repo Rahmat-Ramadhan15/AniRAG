@@ -88,14 +88,17 @@ def _valid_text(value: Any) -> str | None:
 
 def parse_structured_answer(answer_text: str) -> list[dict[str, str]]:
     """
-    Parser fleksibel: Mendeteksi judul anime dari format '### Judul',
-    format penomoran ('1. Judul - ...'), maupun bullet point ('- Judul: ...').
+    Parser yang lebih fleksibel untuk menangkap rekomendasi dari LLM
+    meskipun ada pemotongan baris (line-break) atau format list biasa.
     """
+    # Rapikan baris terpotong secara tidak sengaja oleh LLM
+    text_clean = re.sub(r'(\w+)\n(\w+)', r'\1 \2', answer_text)
+    
     parsed = []
     
-    # 1. Coba parse jika LLM menggunakan '### Judul'
-    if "### " in answer_text:
-        blocks = re.split(r"^###\s+", answer_text, flags=re.MULTILINE)
+    # 1. Jika LLM menggunakan '### Judul'
+    if "### " in text_clean:
+        blocks = re.split(r"^###\s+", text_clean, flags=re.MULTILINE)
         for block in blocks[1:]:
             lines = block.strip().split("\n", 1)
             title = lines[0].strip().strip("[]*")
@@ -105,20 +108,20 @@ def parse_structured_answer(answer_text: str) -> list[dict[str, str]]:
         if parsed:
             return parsed
 
-    # 2. Fallback: Parse format baris/daftar (misal "1. Judul - Deskripsi" atau "Judul - Deskripsi")
-    lines = answer_text.strip().split("\n")
+    # 2. Fallback: Parse format list biasa (misal: "1. Judul - Deskripsi" atau "Judul - Deskripsi")
+    lines = text_clean.strip().split("\n")
     for line in lines:
-        line_clean = line.strip()
-        if not line_clean:
+        line_item = line.strip()
+        if not line_item:
             continue
-        
-        # Pola regex untuk menangkap: [nomor/bullet] [Judul Anime] [- / : / —] [Deskripsi]
-        match = re.match(r"^(?:\d+[\.\)]|\-|\*|\•)?\s*\*?\*?([^\:\-\—\n]+)\*?\*?\s*[\:\-\—]\s*(.+)$", line_clean)
+            
+        # Cari pola "Judul - Deskripsi" atau "1. Judul - Deskripsi"
+        match = re.match(r"^(?:\d+[\.\)]|\-|\*|\•)?\s*\*?\*?([^\:\-\—\n]+)\*?\*?\s*[\:\-\—]\s*(.+)$", line_item)
         if match:
             title = match.group(1).strip().strip("*[]")
             body = match.group(2).strip()
-            # Hindari kata umum terambil sebagai judul
-            if len(title) > 2 and title.lower() not in ["berikut", "catatan", "semoga"]:
+            # Hindari kata-kata pemicu umum yang bukan judul
+            if len(title) > 2 and title.lower() not in ["berikut", "catatan", "semoga", "rekomendasi"]:
                 parsed.append({"title": title, "body": body})
 
     return parsed
@@ -126,16 +129,26 @@ def parse_structured_answer(answer_text: str) -> list[dict[str, str]]:
 
 def match_to_retrieved(parsed_title: str, retrieved: list[dict[str, Any]]) -> dict[str, Any] | None:
     """
-    Cocokkan judul hasil parsing LLM ke metadata hasil retrieval.
+    Pencocokan judul yang lebih toleran terhadap substring dan perbandingan nama.
     """
-    title_lower = parsed_title.strip().lower()
+    if not parsed_title:
+        return None
+        
+    title_clean = re.sub(r'[^\w\s]', '', parsed_title.lower()).strip()
+    
     for d in retrieved:
         meta = d.get("metadata", d) if isinstance(d, dict) else {}
-        candidates = [t for t in [meta.get("title"), meta.get("title_english")] if t]
+        candidates = [meta.get("title"), meta.get("title_english")]
+        
         for c in candidates:
-            c_lower = str(c).strip().lower()
-            if c_lower == title_lower or c_lower in title_lower or title_lower in c_lower:
+            if not c:
+                continue
+            c_clean = re.sub(r'[^\w\s]', '', str(c).lower()).strip()
+            
+            # Cek kecocokan persis atau substring
+            if c_clean == title_clean or c_clean in title_clean or title_clean in c_clean:
                 return meta
+                
     return None
 
 
@@ -143,13 +156,13 @@ def build_interleaved_message(answer_text: str, retrieved: list[dict[str, Any]])
     """
     Menyusun format output terinterleave:
     Setiap '### Judul' diikuti Plot/Alasan, Gambar Poster, dan Badge Metadata.
+    Peringatan tak terverifikasi dihapus agar tampilan UI lebih bersih.
     """
     parsed = parse_structured_answer(answer_text)
     if not parsed:
         return NOT_FOUND_HEADER + answer_text
 
     parts = [FOUND_HEADER.strip()]
-    n_matched = 0
 
     for item in parsed:
         doc = match_to_retrieved(item["title"], retrieved)
@@ -158,8 +171,8 @@ def build_interleaved_message(answer_text: str, retrieved: list[dict[str, Any]])
         if item["body"]:
             parts.append(item["body"])
             
+        # Jika berhasil dicocokkan dan memiliki image_url, tampilkan poster & metadata
         if doc and doc.get("image_url"):
-            n_matched += 1
             meta_bits = []
             
             valid_score = _valid_score(doc.get("score") or doc.get("mal_score"))
@@ -182,13 +195,6 @@ def build_interleaved_message(answer_text: str, retrieved: list[dict[str, Any]])
 
     if parts and parts[-1] == "---":
         parts.pop()
-
-    if n_matched == 0:
-        parts.append(
-            "---\n\n⚠️ _Catatan: rekomendasi di atas tidak dapat diverifikasi dari "
-            "basis data kami -- kemungkinan model menjawab dari pengetahuan umumnya "
-            "sendiri, bukan dari data yang tersedia._"
-        )
 
     return "\n\n".join(parts).strip()
 
