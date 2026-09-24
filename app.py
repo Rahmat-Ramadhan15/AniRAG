@@ -766,7 +766,7 @@ theme = gr.themes.Soft(
 # GRADIO APP BUILD (Struktur UI Referensi)
 # ============================================================
 
-with gr.Blocks(title=APP_TITLE) as demo:
+with gr.Blocks(title=APP_TITLE, theme=theme) as demo:
     with gr.Column(elem_id="page-wrap"):
         gr.HTML(
             '<div id="app-header">'
@@ -780,6 +780,7 @@ with gr.Blocks(title=APP_TITLE) as demo:
             chatbot = gr.Chatbot(
                 elem_id="chatbot",
                 height="100%",
+                type="messages",
                 label="Percakapan",
                 show_label=False,
                 avatar_images=None,
@@ -839,4 +840,4 @@ if __name__ == "__main__":
     print("[INFO] Menjalankan aplikasi...")
 
     share_mode = os.environ.get("GRADIO_SHARE") == "1"
-    demo.launch(theme=theme, css=CUSTOM_CSS, js=CLEANUP_JS, share=True)
+    demo.launch(css=CUSTOM_CSS, js=CLEANUP_JS, share=True)
