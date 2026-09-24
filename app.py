@@ -21,7 +21,7 @@ import gradio as gr
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-from src.rag_pipeline import RagPipeline, build_effective_query
+from src.rag_pipeline import RagPipeline
 
 print("=" * 70)
 print("AniRAG-v2 — INITIALIZING")
@@ -66,7 +66,7 @@ OUT_OF_DOMAIN_MESSAGE = (
 
 
 # ============================================================
-# HELPER FUNCTIONS & FORMATTING (FORMAT LAMA YANG RAPI)
+# HELPER FUNCTIONS & FORMATTING
 # ============================================================
 
 def _valid_score(value: Any) -> float | None:
@@ -110,7 +110,6 @@ def match_to_retrieved(parsed_title: str, retrieved: list[dict[str, Any]]) -> di
     """
     title_lower = parsed_title.strip().lower()
     for d in retrieved:
-        # Ekstrak metadata jika ada wrapper metadata
         meta = d.get("metadata", d) if isinstance(d, dict) else {}
         candidates = [t for t in [meta.get("title"), meta.get("title_english")] if t]
         for c in candidates:
@@ -122,7 +121,7 @@ def match_to_retrieved(parsed_title: str, retrieved: list[dict[str, Any]]) -> di
 
 def build_interleaved_message(answer_text: str, retrieved: list[dict[str, Any]]) -> str:
     """
-    Menyusun format output persis versi dulu:
+    Menyusun format output terinterleave:
     Setiap '### Judul' diikuti Plot/Alasan, Gambar Poster, dan Badge Metadata.
     """
     parsed = parse_structured_answer(answer_text)
@@ -214,42 +213,16 @@ def respond(message: str, history: list[dict[str, Any]] | None):
     normalized_history = normalize_history(history)
 
     try:
-        # 1. multi-turn query
-        effective_query = build_effective_query(message, normalized_history)
-
-        # 2. retrieval
-        retrieved = []
-        if hasattr(pipe, "retrieve"):
-            k = pipe.cfg["retrieval"]["top_k_final"] if hasattr(pipe, "cfg") else TOP_K
-            retrieved = pipe.retrieve(effective_query, k=k, use_rerank=True)
-
-            best_score = max((d.get("score", 0.0) for d in retrieved), default=0.0)
-            if retrieved and best_score < MIN_RELEVANCE_SCORE:
-                new_history = list(history or [])
-                new_history.append({"role": "user", "content": message})
-                new_history.append({"role": "assistant", "content": OUT_OF_DOMAIN_MESSAGE})
-                yield new_history
-                return
-
-        # 3. generate SLM
-        if hasattr(pipe, "retrieve") and retrieved:
-            result = pipe.generate(
-                effective_query,
-                k=len(retrieved),
-                use_retrieval=True,
-                use_enrichment=False,
-                pre_retrieved=retrieved,
-            )
-        else:
-            result = pipe.generate(
-                message,
-                history=normalized_history,
-                top_k=TOP_K,
-                use_retrieval=True,
-                use_enrichment=False,
-                max_new_tokens=MAX_NEW_TOKENS,
-                temperature=TEMPERATURE,
-            )
+        # Jalankan pipeline penuh AniRAG-v2
+        result = pipe.generate(
+            message,
+            history=normalized_history,
+            top_k=TOP_K,
+            use_retrieval=True,
+            use_enrichment=False,
+            max_new_tokens=MAX_NEW_TOKENS,
+            temperature=TEMPERATURE,
+        )
 
     except Exception as exc:
         print("\n" + "=" * 70)
@@ -264,7 +237,7 @@ def respond(message: str, history: list[dict[str, Any]] | None):
         yield new_history
         return
 
-    # 4. Output formatting
+    # Handle Blocked / Refusal
     if isinstance(result, dict) and result.get("blocked"):
         refusal = _valid_text(result.get("refusal") or result.get("response") or result.get("answer"))
         if not refusal:
@@ -276,17 +249,18 @@ def respond(message: str, history: list[dict[str, Any]] | None):
         yield new_history
         return
 
+    # Ambil teks jawaban dan hasil retrieval dari result AniRAG-v2
     if isinstance(result, dict):
         raw_answer = _valid_text(result.get("response") or result.get("answer"))
-        results_list = result.get("results", retrieved)
+        results_list = result.get("results", [])
     else:
         raw_answer = _valid_text(result)
-        results_list = retrieved
+        results_list = []
 
     if not isinstance(results_list, list):
         results_list = []
 
-    # Susun tampilan terinterleave (Markdown + Poster)
+    # Format jawaban menjadi bentuk terinterleave (Markdown + Poster)
     final_message = build_interleaved_message(raw_answer, results_list)
 
     new_history = list(history or [])
