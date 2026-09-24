@@ -1,0 +1,221 @@
+{
+  "phase": 13,
+  "title": "Statistical Analysis — AniRAG-v2",
+  "status": "complete",
+  "design": {
+    "comparison": "A_vs_B",
+    "condition_A": "SLM-only without retrieval",
+    "condition_B": "SLM + RAG",
+    "paired_unit": "query_id",
+    "n_query_ids": 200,
+    "n_judge_records": 400
+  },
+  "input": {
+    "judge_scores": "results\\judge_scores_v22.jsonl",
+    "experiment_results": "results\\experiment_v1.jsonl"
+  },
+  "judge_integrity": {
+    "total_records": 400,
+    "unique_query_ids": 200,
+    "expected_records": 400,
+    "expected_query_ids": 200,
+    "conditions": [
+      "A",
+      "B"
+    ],
+    "pairing_method": "query_id"
+  },
+  "category_statistics": {
+    "attribute_filtering": {
+      "A": {
+        "n_query": 50,
+        "relevance": 2.92,
+        "factual_accuracy": 2.68,
+        "coherence": 4.4
+      },
+      "B": {
+        "n_query": 50,
+        "relevance": 3.52,
+        "factual_accuracy": 3.32,
+        "coherence": 4.58
+      }
+    },
+    "factual": {
+      "A": {
+        "n_query": 50,
+        "relevance": 1.78,
+        "factual_accuracy": 3.64,
+        "coherence": 4.98
+      },
+      "B": {
+        "n_query": 50,
+        "relevance": 4.5,
+        "factual_accuracy": 4.66,
+        "coherence": 5.0
+      }
+    },
+    "multi_turn_refinement": {
+      "A": {
+        "n_query": 50,
+        "relevance": 1.9,
+        "factual_accuracy": 3.02,
+        "coherence": 4.52
+      },
+      "B": {
+        "n_query": 50,
+        "relevance": 3.24,
+        "factual_accuracy": 3.66,
+        "coherence": 4.44
+      }
+    },
+    "similarity": {
+      "A": {
+        "n_query": 50,
+        "relevance": 3.26,
+        "factual_accuracy": 3.06,
+        "coherence": 4.78
+      },
+      "B": {
+        "n_query": 50,
+        "relevance": 2.82,
+        "factual_accuracy": 3.48,
+        "coherence": 4.52
+      }
+    }
+  },
+  "wilcoxon_signed_rank": {
+    "relevance": {
+      "metric": "relevance",
+      "n_pairs": 200,
+      "n_nonzero_pairs": 146,
+      "n_zero_difference_pairs": 54,
+      "wilcoxon_statistic": 2044.5,
+      "p_value": 5.070555899097417e-11,
+      "significant_at_0.05": true,
+      "effect_size_rank_biserial": 0.619,
+      "effect_interpretation": "large; B lebih tinggi daripada A",
+      "zero_method": "wilcox",
+      "alternative": "two-sided",
+      "mean_A": 2.465,
+      "mean_B": 3.52,
+      "median_A": 2.0,
+      "median_B": 4.0,
+      "mean_difference_B_minus_A": 1.055,
+      "median_difference_B_minus_A": 1.0,
+      "B_greater_than_A": 108,
+      "B_equal_A": 54,
+      "B_less_than_A": 38,
+      "zero_difference_rate": 0.27,
+      "holm_adjusted_p_value": 1.521166769729225e-10,
+      "significant_after_holm_0.05": true
+    },
+    "factual_accuracy": {
+      "metric": "factual_accuracy",
+      "n_pairs": 200,
+      "n_nonzero_pairs": 128,
+      "n_zero_difference_pairs": 72,
+      "wilcoxon_statistic": 2184.0,
+      "p_value": 3.0999495672321625e-06,
+      "significant_at_0.05": true,
+      "effect_size_rank_biserial": 0.4709,
+      "effect_interpretation": "moderate; B lebih tinggi daripada A",
+      "zero_method": "wilcox",
+      "alternative": "two-sided",
+      "mean_A": 3.1,
+      "mean_B": 3.78,
+      "median_A": 3.0,
+      "median_B": 5.0,
+      "mean_difference_B_minus_A": 0.68,
+      "median_difference_B_minus_A": 0.0,
+      "B_greater_than_A": 88,
+      "B_equal_A": 72,
+      "B_less_than_A": 40,
+      "zero_difference_rate": 0.36,
+      "holm_adjusted_p_value": 6.199899134464325e-06,
+      "significant_after_holm_0.05": true
+    },
+    "coherence": {
+      "metric": "coherence",
+      "n_pairs": 200,
+      "n_nonzero_pairs": 59,
+      "n_zero_difference_pairs": 141,
+      "wilcoxon_statistic": 804.5,
+      "p_value": 0.531425322473714,
+      "significant_at_0.05": false,
+      "effect_size_rank_biserial": -0.091,
+      "effect_interpretation": "negligible; A lebih tinggi daripada B",
+      "zero_method": "wilcox",
+      "alternative": "two-sided",
+      "mean_A": 4.67,
+      "mean_B": 4.635,
+      "median_A": 5.0,
+      "median_B": 5.0,
+      "mean_difference_B_minus_A": -0.035,
+      "median_difference_B_minus_A": 0.0,
+      "B_greater_than_A": 29,
+      "B_equal_A": 141,
+      "B_less_than_A": 30,
+      "zero_difference_rate": 0.705,
+      "holm_adjusted_p_value": 0.531425322473714,
+      "significant_after_holm_0.05": false
+    }
+  },
+  "refusal_rate_analysis": {
+    "adversarial": {
+      "A": {
+        "n_records": 50,
+        "blocked_count": 8,
+        "blocked_rate": 0.16,
+        "refusal_field_present_count": 8,
+        "non_empty_response_count": 0
+      },
+      "B": {
+        "n_records": 50,
+        "blocked_count": 8,
+        "blocked_rate": 0.16,
+        "refusal_field_present_count": 8,
+        "non_empty_response_count": 0
+      }
+    },
+    "out_of_scope": {
+      "A": {
+        "n_records": 50,
+        "blocked_count": 8,
+        "blocked_rate": 0.16,
+        "refusal_field_present_count": 8,
+        "non_empty_response_count": 0
+      },
+      "B": {
+        "n_records": 50,
+        "blocked_count": 8,
+        "blocked_rate": 0.16,
+        "refusal_field_present_count": 8,
+        "non_empty_response_count": 0
+      }
+    },
+    "overall": {
+      "A": {
+        "n_records": 100,
+        "blocked_count": 16,
+        "blocked_rate": 0.16
+      },
+      "B": {
+        "n_records": 100,
+        "blocked_count": 16,
+        "blocked_rate": 0.16
+      }
+    }
+  },
+  "methodology": {
+    "alpha": 0.05,
+    "alternative": "two-sided",
+    "zero_method": "wilcox",
+    "multiple_testing_correction": "Holm-Bonferroni",
+    "effect_size": "rank-biserial correlation"
+  },
+  "notes": [
+    "Wilcoxon digunakan untuk paired comparison A vs B berdasarkan query_id.",
+    "Condition C tidak termasuk dalam eksperimen final dan tidak dianalisis.",
+    "100 kasus out_of_scope dan adversarial digunakan untuk refusal/robustness analysis terpisah, bukan primary Wilcoxon comparison."
+  ]
+}
