@@ -1,53 +1,53 @@
 """
-AniRAG-v2 — Gradio UI (Desain Minimalis UI Acuan + Backend AniRAG-v2)
+AniRAG-v2 — Gradio UI
 
-Entry point utama aplikasi.
-UI mengambil desain penuh dari versi referensi (full-bleed shell, header flat, 
-bottom-dock, chip contoh, empty state kustom, responsif mobile/desktop),
-sedangkan seluruh alur pemrosesan data murni menggunakan RagPipeline AniRAG-v2.
+UI Minimalis + Backend AniRAG-v2 + Output Format Terinterleave (Judul + Plot + Alasan + Poster)
 """
 
 from __future__ import annotations
 
 import html
+import math
 import os
 import re
-import math
 from pathlib import Path
 from typing import Any
 
 import gradio as gr
 
 # ============================================================
-# PATH
+# PATH & BACKEND INITIALIZATION (AniRAG-v2)
 # ============================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-
-# ============================================================
-# BACKEND INITIALIZATION (AniRAG-v2)
-# ============================================================
-
-from src.rag_pipeline import RagPipeline
+from src.rag_pipeline import RagPipeline, build_effective_query
 
 print("=" * 70)
 print("AniRAG-v2 — INITIALIZING")
 print("=" * 70)
 
 pipe = RagPipeline()
+if hasattr(pipe, "load_index"):
+    pipe.load_index()
+
+if os.environ.get("USE_GPU_BACKEND") == "1":
+    print("[INFO] USE_GPU_BACKEND=1 -- memuat model GPU")
+    if hasattr(pipe, "load_llm"):
+        pipe.load_llm(quantize=True)
 
 print("[OK] RagPipeline berhasil diinisialisasi.")
 
 
 # ============================================================
-# UI CONFIGURATION
+# UI CONFIGURATION & CONSTANTS
 # ============================================================
 
 APP_TITLE = "AniRAG"
 TOP_K = 5
 MAX_NEW_TOKENS = 256
 TEMPERATURE = 0.2
+MIN_RELEVANCE_SCORE = 0.25
 
 EXAMPLE_PROMPTS = [
     "Rekomendasikan anime action dengan tema samurai",
@@ -55,169 +55,40 @@ EXAMPLE_PROMPTS = [
     "Rekomendasikan anime sports dengan rating tinggi",
 ]
 
+FOUND_HEADER = "✅ **Rekomendasi ditemukan!**\n\n"
+NOT_FOUND_HEADER = "🔍 "
+
+OUT_OF_DOMAIN_MESSAGE = (
+    "Maaf, pertanyaan ini sepertinya di luar topik anime yang bisa saya bantu. "
+    "Coba tanyakan rekomendasi anime, filter genre/tahun/rating, atau info seputar "
+    "anime tertentu ya!"
+)
+
 
 # ============================================================
-# HELPER FUNCTIONS & METADATA (AniRAG-v2)
+# HELPER FUNCTIONS & FORMATTING (FORMAT LAMA YANG RAPI)
 # ============================================================
 
-def _valid_text(value: Any) -> str:
-    """Mengubah nilai menjadi string yang aman untuk ditampilkan."""
+def _valid_score(value: Any) -> float | None:
+    try:
+        f = float(value)
+        return None if math.isnan(f) else f
+    except (TypeError, ValueError):
+        return None
+
+
+def _valid_text(value: Any) -> str | None:
     if value is None:
-        return ""
+        return None
     text = str(value).strip()
     if not text or text.lower() == "nan":
-        return ""
+        return None
     return text
-
-
-def _valid_score(value: Any) -> str:
-    """Format score untuk UI."""
-    if value is None:
-        return ""
-    try:
-        score = float(value)
-        if score <= 0:
-            return ""
-        return f"{score:.2f}"
-    except (TypeError, ValueError):
-        return _valid_text(value)
-
-
-def _metadata(result: dict[str, Any]) -> dict[str, Any]:
-    """Mengambil metadata dari satu hasil retrieval."""
-    metadata = result.get("metadata", {})
-    if not isinstance(metadata, dict):
-        return {}
-    return metadata
-
-
-def _escape(value: Any) -> str:
-    """HTML escape untuk mencegah metadata merusak markup UI."""
-    return html.escape(_valid_text(value))
-
-
-# ============================================================
-# RESPONSE FORMATTING (AniRAG-v2 Cards)
-# ============================================================
-
-def build_anime_card(result: dict[str, Any]) -> str:
-    """
-    Membuat satu kartu anime berdasarkan metadata retrieval.
-    Poster WAJIB berasal dari metadata.image_url.
-    Tidak pernah mengambil URL poster dari output LLM.
-    """
-    metadata = _metadata(result)
-
-    title = _valid_text(metadata.get("title"))
-    title_english = _valid_text(metadata.get("title_english"))
-    anime_type = _valid_text(metadata.get("type"))
-    episodes = _valid_text(metadata.get("episodes"))
-    score = _valid_score(metadata.get("score"))
-    genres = _valid_text(metadata.get("genres"))
-    themes = _valid_text(metadata.get("themes"))
-    year = _valid_text(metadata.get("year"))
-    studios = _valid_text(metadata.get("studios"))
-    image_url = _valid_text(metadata.get("image_url"))
-
-    # Poster
-    if image_url:
-        poster_html = f"""
-        <img
-            src="{_escape(image_url)}"
-            alt="{_escape(title)}"
-            class="anime-poster"
-            loading="lazy"
-        />
-        """
-    else:
-        poster_html = """
-        <div class="anime-poster anime-poster-empty">
-            <span>No Poster</span>
-        </div>
-        """
-
-    # Metadata
-    meta_items = []
-    if anime_type:
-        meta_items.append(f'<span class="anime-meta-item">{_escape(anime_type)}</span>')
-    if episodes:
-        meta_items.append(f'<span class="anime-meta-item">{_escape(episodes)} eps</span>')
-    if year:
-        meta_items.append(f'<span class="anime-meta-item">{_escape(year)}</span>')
-    if score:
-        meta_items.append(f'<span class="anime-score">★ {_escape(score)}</span>')
-
-    meta_html = "".join(meta_items)
-
-    # Optional fields
-    english_html = ""
-    if title_english and title_english.lower() != title.lower():
-        english_html = f'<div class="anime-english-title">{_escape(title_english)}</div>'
-
-    genres_html = ""
-    if genres:
-        genres_html = f"""
-        <div class="anime-detail">
-            <span class="anime-label">Genre</span>
-            <span>{_escape(genres)}</span>
-        </div>
-        """
-
-    themes_html = ""
-    if themes:
-        themes_html = f"""
-        <div class="anime-detail">
-            <span class="anime-label">Tema</span>
-            <span>{_escape(themes)}</span>
-        </div>
-        """
-
-    studios_html = ""
-    if studios:
-        studios_html = f"""
-        <div class="anime-detail">
-            <span class="anime-label">Studio</span>
-            <span>{_escape(studios)}</span>
-        </div>
-        """
-
-    return f"""
-    <div class="anime-card">
-        <div class="anime-card-poster">
-            {poster_html}
-        </div>
-        <div class="anime-card-content">
-            <div class="anime-title">{_escape(title or "Unknown Anime")}</div>
-            {english_html}
-            <div class="anime-meta">{meta_html}</div>
-            {genres_html}
-            {themes_html}
-            {studios_html}
-        </div>
-    </div>
-    """
-
-
-def build_retrieved_cards(results: list[dict[str, Any]]) -> str:
-    """Membuat kumpulan kartu dari hasil retrieval."""
-    if not results:
-        return ""
-
-    cards = []
-    for result in results:
-        if not isinstance(result, dict):
-            continue
-        cards.append(build_anime_card(result))
-
-    if not cards:
-        return ""
-
-    return f'<div class="anime-results">{"".join(cards)}</div>'
 
 
 def parse_structured_answer(answer_text: str) -> list[dict[str, str]]:
     """
-    Mengekstrak blok rekomendasi berformat:
+    Parse jawaban LLM berformat:
         ### Judul
         Plot: ...
         Alasan: ...
@@ -235,11 +106,11 @@ def parse_structured_answer(answer_text: str) -> list[dict[str, str]]:
 
 def match_to_retrieved(parsed_title: str, retrieved: list[dict[str, Any]]) -> dict[str, Any] | None:
     """
-    Mencocokkan judul yang dihasilkan LLM ke metadata hasil retrieval (exact/substring).
+    Cocokkan judul hasil parsing LLM ke metadata hasil retrieval.
     """
     title_lower = parsed_title.strip().lower()
     for d in retrieved:
-        # Ambil metadata
+        # Ekstrak metadata jika ada wrapper metadata
         meta = d.get("metadata", d) if isinstance(d, dict) else {}
         candidates = [t for t in [meta.get("title"), meta.get("title_english")] if t]
         for c in candidates:
@@ -249,52 +120,42 @@ def match_to_retrieved(parsed_title: str, retrieved: list[dict[str, Any]]) -> di
     return None
 
 
-def build_interleaved_response(answer_text: str, retrieved: list[dict[str, Any]]) -> str:
+def build_interleaved_message(answer_text: str, retrieved: list[dict[str, Any]]) -> str:
     """
-    Menyusun jawaban: Tiap rekomendasi (### Judul + Plot + Alasan)
-    diikuti LANGSUNG oleh poster Markdown dan badge metadata (skor, genre, tema).
+    Menyusun format output persis versi dulu:
+    Setiap '### Judul' diikuti Plot/Alasan, Gambar Poster, dan Badge Metadata.
     """
     parsed = parse_structured_answer(answer_text)
-    
-    # Fallback jika LLM tidak menggunakan format '### Judul'
     if not parsed:
-        return answer_text
+        return NOT_FOUND_HEADER + answer_text
 
-    parts = []
+    parts = [FOUND_HEADER.strip()]
     n_matched = 0
 
     for item in parsed:
-        meta = match_to_retrieved(item["title"], retrieved)
+        doc = match_to_retrieved(item["title"], retrieved)
         parts.append(f"### {item['title']}")
         
         if item["body"]:
             parts.append(item["body"])
             
-        if meta and meta.get("image_url"):
+        if doc and doc.get("image_url"):
             n_matched += 1
-            image_url = meta.get("image_url")
-            
-            # Buat caption metadata singkat (Skor | Genre | Tema)
             meta_bits = []
-            score = meta.get("score") or meta.get("mal_score")
-            if score:
-                try:
-                    s_float = float(score)
-                    if not math.isnan(s_float) and s_float > 0:
-                        meta_bits.append(f"★ {s_float:.2f}")
-                except (TypeError, ValueError):
-                    pass
-
-            genres = meta.get("genres")
-            if genres and str(genres).lower() != "nan":
-                meta_bits.append(" | ".join(str(genres).split("|")[:3]))
-
-            themes = meta.get("themes")
-            if themes and str(themes).lower() != "nan":
-                meta_bits.append(" | ".join(str(themes).split("|")[:2]))
-
-            # Sisipkan poster Markdown
-            parts.append(f"![{item['title']}]({image_url})")
+            
+            valid_score = _valid_score(doc.get("score") or doc.get("mal_score"))
+            if valid_score is not None:
+                meta_bits.append(f"★ {valid_score}")
+                
+            valid_genres = _valid_text(doc.get("genres"))
+            if valid_genres:
+                meta_bits.append(" | ".join(valid_genres.split("|")[:3]))
+                
+            valid_themes = _valid_text(doc.get("themes"))
+            if valid_themes:
+                meta_bits.append(" | ".join(valid_themes.split("|")[:2]))
+                
+            parts.append(f"![{item['title']}]({doc['image_url']})")
             if meta_bits:
                 parts.append(f"_{' — '.join(meta_bits)}_")
                 
@@ -303,24 +164,21 @@ def build_interleaved_response(answer_text: str, retrieved: list[dict[str, Any]]
     if parts and parts[-1] == "---":
         parts.pop()
 
-    # Warning jika LLM berhalusinasi judul yang tidak ada di index
-    if n_matched == 0 and len(parsed) > 0:
+    if n_matched == 0:
         parts.append(
-            "\n---\n⚠️ _Catatan: Rekomendasi di atas tidak dapat diverifikasi dari basis data kami._"
+            "---\n\n⚠️ _Catatan: rekomendasi di atas tidak dapat diverifikasi dari "
+            "basis data kami -- kemungkinan model menjawab dari pengetahuan umumnya "
+            "sendiri, bukan dari data yang tersedia._"
         )
 
     return "\n\n".join(parts).strip()
 
 
 # ============================================================
-# HISTORY NORMALIZATION (AniRAG-v2)
+# HISTORY NORMALIZATION
 # ============================================================
 
 def normalize_history(history: Any) -> list[dict[str, Any]]:
-    """
-    Menormalisasi history Gradio agar sesuai dengan format
-    history yang diharapkan RagPipeline.
-    """
     if not history:
         return []
 
@@ -344,35 +202,58 @@ def normalize_history(history: Any) -> list[dict[str, Any]]:
 
 
 # ============================================================
-# CHAT RESPONSE CALLBACK (Logika Backend AniRAG-v2)
+# CHAT RESPONSE CALLBACK (AniRAG-v2)
 # ============================================================
 
 def respond(message: str, history: list[dict[str, Any]] | None):
-    """
-    Main UI callback.
-    Flow: RagPipeline.generate() -> Guardrail -> Multi-turn -> Retrieval -> SLM -> Response
-    """
     message = _valid_text(message)
-
     if not message:
-        return history or []
+        yield history or []
+        return
 
     normalized_history = normalize_history(history)
 
     try:
-        result = pipe.generate(
-            message,
-            history=normalized_history,
-            top_k=TOP_K,
-            use_retrieval=True,
-            use_enrichment=False,
-            max_new_tokens=MAX_NEW_TOKENS,
-            temperature=TEMPERATURE,
-        )
+        # 1. multi-turn query
+        effective_query = build_effective_query(message, normalized_history)
+
+        # 2. retrieval
+        retrieved = []
+        if hasattr(pipe, "retrieve"):
+            k = pipe.cfg["retrieval"]["top_k_final"] if hasattr(pipe, "cfg") else TOP_K
+            retrieved = pipe.retrieve(effective_query, k=k, use_rerank=True)
+
+            best_score = max((d.get("score", 0.0) for d in retrieved), default=0.0)
+            if retrieved and best_score < MIN_RELEVANCE_SCORE:
+                new_history = list(history or [])
+                new_history.append({"role": "user", "content": message})
+                new_history.append({"role": "assistant", "content": OUT_OF_DOMAIN_MESSAGE})
+                yield new_history
+                return
+
+        # 3. generate SLM
+        if hasattr(pipe, "retrieve") and retrieved:
+            result = pipe.generate(
+                effective_query,
+                k=len(retrieved),
+                use_retrieval=True,
+                use_enrichment=False,
+                pre_retrieved=retrieved,
+            )
+        else:
+            result = pipe.generate(
+                message,
+                history=normalized_history,
+                top_k=TOP_K,
+                use_retrieval=True,
+                use_enrichment=False,
+                max_new_tokens=MAX_NEW_TOKENS,
+                temperature=TEMPERATURE,
+            )
+
     except Exception as exc:
         print("\n" + "=" * 70)
         print("[ERROR] AniRAG generate()")
-        print("=" * 70)
         print(repr(exc))
         print("=" * 70 + "\n")
 
@@ -380,36 +261,43 @@ def respond(message: str, history: list[dict[str, Any]] | None):
         new_history = list(history or [])
         new_history.append({"role": "user", "content": message})
         new_history.append({"role": "assistant", "content": error_message})
-        return new_history
+        yield new_history
+        return
 
-    # BLOCKED / REFUSAL
-    if result.get("blocked"):
-        refusal = _valid_text(result.get("refusal") or result.get("response"))
+    # 4. Output formatting
+    if isinstance(result, dict) and result.get("blocked"):
+        refusal = _valid_text(result.get("refusal") or result.get("response") or result.get("answer"))
         if not refusal:
             refusal = "Maaf, saya hanya dapat membantu pertanyaan yang berkaitan dengan anime."
 
         new_history = list(history or [])
         new_history.append({"role": "user", "content": message})
         new_history.append({"role": "assistant", "content": refusal})
-        return new_history
+        yield new_history
+        return
 
-    # NORMAL RESPONSE
-    answer = _valid_text(result.get("response"))
-    results = result.get("results", [])
-    if not isinstance(results, list):
-        results = []
+    if isinstance(result, dict):
+        raw_answer = _valid_text(result.get("response") or result.get("answer"))
+        results_list = result.get("results", retrieved)
+    else:
+        raw_answer = _valid_text(result)
+        results_list = retrieved
 
-    formatted_response = build_interleaved_response(answer, results)
+    if not isinstance(results_list, list):
+        results_list = []
+
+    # Susun tampilan terinterleave (Markdown + Poster)
+    final_message = build_interleaved_message(raw_answer, results_list)
 
     new_history = list(history or [])
     new_history.append({"role": "user", "content": message})
-    new_history.append({"role": "assistant", "content": formatted_response})
+    new_history.append({"role": "assistant", "content": final_message})
 
-    return new_history
+    yield new_history
 
 
 # ============================================================
-# TAMPILAN HTML, CSS, & JS (100% Mengikuti Project Acuan)
+# TAMPILAN & CSS RESPONSIONAL
 # ============================================================
 
 EMPTY_STATE_HTML = (
@@ -432,8 +320,8 @@ CUSTOM_CSS = """
     --text-primary: #111114;
     --text-secondary: #6B6F76;
     --text-muted: #9AA0A6;
-    --accent: #111114;       /* bubble user & elemen aksi utama -- hitam netral */
-    --accent-soft: #F0F0F2;  /* latar tombol sekunder (mis. tombol kirim) */
+    --accent: #111114;
+    --accent-soft: #F0F0F2;
 }
 
 * { box-sizing: border-box; }
@@ -445,7 +333,6 @@ body, .gradio-container {
     font-size: 16px !important;
 }
 
-/* ---------- Full-screen shell ---------- */
 html, body { height: 100%; margin: 0 !important; overflow: hidden !important; }
 .gradio-container {
     max-width: 100% !important;
@@ -470,7 +357,6 @@ html, body { height: 100%; margin: 0 !important; overflow: hidden !important; }
     gap: 0 !important;
 }
 
-/* ---------- Header: strip putih flat, full-width ---------- */
 #app-header {
     display: flex !important;
     align-items: flex-start !important;
@@ -497,7 +383,6 @@ html, body { height: 100%; margin: 0 !important; overflow: hidden !important; }
     max-width: 320px;
 }
 
-/* ---------- Area chat ---------- */
 #chat-scroll {
     flex: 1 1 auto !important;
     min-height: 0 !important;
@@ -519,7 +404,6 @@ html, body { height: 100%; margin: 0 !important; overflow: hidden !important; }
     -webkit-overflow-scrolling: touch !important;
 }
 
-/* Empty-state */
 #empty-state {
     display: flex;
     flex-direction: column;
@@ -555,7 +439,6 @@ html, body { height: 100%; margin: 0 !important; overflow: hidden !important; }
     line-height: 1.5;
 }
 
-/* ---------- Bubble chat ---------- */
 .message-wrap { padding: 6px 4px !important; }
 .message, .message p, .message li {
     font-size: 15px !important;
@@ -567,6 +450,15 @@ html, body { height: 100%; margin: 0 !important; overflow: hidden !important; }
     font-size: 16px !important;
     font-weight: 600;
     margin-top: 12px !important;
+}
+.message img {
+    border-radius: 12px !important;
+    border: 1px solid var(--border) !important;
+    max-width: 200px !important;
+    width: 100% !important;
+    height: auto !important;
+    margin-top: 8px !important;
+    box-shadow: none !important;
 }
 .message.user {
     background: var(--accent) !important;
@@ -584,92 +476,6 @@ html, body { height: 100%; margin: 0 !important; overflow: hidden !important; }
 }
 .message.bot h3, .message.bot strong { color: var(--text-primary); }
 
-/* ---------- Styling Kartu Anime AniRAG-v2 dalam Chat ---------- */
-.anirag-answer {
-    line-height: 1.75;
-    margin-bottom: 14px;
-}
-.anime-results {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 12px;
-    margin-top: 12px;
-}
-.anime-card {
-    display: flex;
-    gap: 12px;
-    padding: 12px;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    background: var(--bg-surface);
-}
-.anime-card-poster {
-    flex: 0 0 86px;
-    width: 86px;
-}
-.anime-poster {
-    display: block;
-    width: 86px;
-    height: 124px;
-    object-fit: cover;
-    border-radius: 8px;
-    background: var(--bg-page);
-}
-.anime-poster-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-muted);
-    font-size: 11px;
-    border-radius: 8px;
-    background: var(--bg-page);
-}
-.anime-card-content {
-    flex: 1;
-    min-width: 0;
-}
-.anime-title {
-    font-size: 14.5px;
-    font-weight: 700;
-    color: var(--text-primary);
-}
-.anime-english-title {
-    color: var(--text-secondary);
-    font-size: 11.5px;
-    margin-top: 2px;
-}
-.anime-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    margin-top: 6px;
-}
-.anime-meta-item, .anime-score {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 6px;
-    border-radius: 999px;
-    background: var(--bg-page);
-    color: var(--text-secondary);
-    font-size: 10px;
-}
-.anime-score {
-    font-weight: 600;
-}
-.anime-detail {
-    display: flex;
-    flex-direction: column;
-    margin-top: 6px;
-    font-size: 11px;
-    color: var(--text-secondary);
-}
-.anime-label {
-    color: var(--text-muted);
-    font-size: 9.5px;
-    font-weight: 600;
-}
-
-/* ---------- Bottom dock: contoh prompt + kolom input + disclaimer ---------- */
 #bottom-dock {
     flex: 0 0 auto !important;
     background: var(--bg-surface);
@@ -768,7 +574,6 @@ button[title*="elp" i] {
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
 ::-webkit-scrollbar-thumb:hover { background: #B5B5BC; }
 
-/* ---------- MOBILE FIX (<=640px) ---------- */
 @media (max-width: 640px) {
     body, .gradio-container { font-size: 15px !important; }
     #app-header { padding: 14px 16px; }
@@ -781,7 +586,6 @@ button[title*="elp" i] {
     #empty-state-subtitle { font-size: 13px; }
     .message, .message p, .message li { font-size: 14.5px !important; line-height: 1.55 !important; }
     .message h3 { font-size: 15px !important; margin-top: 10px !important; }
-    .anime-results { grid-template-columns: 1fr; }
     #bottom-dock { padding: 10px 14px !important; padding-bottom: max(10px, env(safe-area-inset-bottom)) !important; gap: 8px !important; }
     .example-btn { font-size: 12.5px !important; padding: 6px 12px !important; }
     #input-row {
@@ -841,10 +645,10 @@ theme = gr.themes.Soft(
 
 
 # ============================================================
-# GRADIO APP BUILD (Struktur UI Referensi)
+# GRADIO APPLICATION BUILD
 # ============================================================
 
-with gr.Blocks(title=APP_TITLE, theme=theme, css=CUSTOM_CSS, js=CLEANUP_JS,) as demo:
+with gr.Blocks(title=APP_TITLE) as demo:
     with gr.Column(elem_id="page-wrap"):
         gr.HTML(
             '<div id="app-header">'
@@ -857,13 +661,12 @@ with gr.Blocks(title=APP_TITLE, theme=theme, css=CUSTOM_CSS, js=CLEANUP_JS,) as 
         with gr.Column(elem_id="chat-scroll"):
             chatbot = gr.Chatbot(
                 elem_id="chatbot",
-                height="100%",
                 type="messages",
+                height="100%",
                 label="Percakapan",
                 show_label=False,
                 avatar_images=None,
                 placeholder=EMPTY_STATE_HTML,
-                sanitize_html=False,
             )
 
         with gr.Column(elem_id="bottom-dock"):
@@ -886,11 +689,9 @@ with gr.Blocks(title=APP_TITLE, theme=theme, css=CUSTOM_CSS, js=CLEANUP_JS,) as 
 
             gr.HTML('<p id="disclaimer">AniRAG dapat membuat kesalahan. Periksa informasi penting.</p>')
 
-    # Handler tombol contoh
     for btn, prompt_text in zip(example_buttons, EXAMPLE_PROMPTS):
         btn.click(fn=lambda p=prompt_text: p, inputs=None, outputs=msg)
 
-    # Event Submit & Klik Kirim (Menjalankan respond AniRAG-v2)
     msg.submit(
         respond, [msg, chatbot], [chatbot]
     ).then(
@@ -919,4 +720,4 @@ if __name__ == "__main__":
     print("[INFO] Menjalankan aplikasi...")
 
     share_mode = os.environ.get("GRADIO_SHARE") == "1"
-    demo.launch(share=True)
+    demo.launch(theme=theme, css=CUSTOM_CSS, js=CLEANUP_JS, share=share_mode)
