@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import html
 import os
+import re
+import math
 from pathlib import Path
 from typing import Any
 
@@ -213,25 +215,101 @@ def build_retrieved_cards(results: list[dict[str, Any]]) -> str:
     return f'<div class="anime-results">{"".join(cards)}</div>'
 
 
-def build_interleaved_response(answer: str, results: list[dict[str, Any]]) -> str:
+def parse_structured_answer(answer_text: str) -> list[dict[str, str]]:
     """
-    Menggabungkan jawaban SLM dengan kartu anime.
-    Jawaban SLM tetap ditampilkan sebagai teks.
-    Poster dan metadata ditambahkan dari hasil retrieval, bukan dari output LLM.
+    Mengekstrak blok rekomendasi berformat:
+        ### Judul
+        Plot: ...
+        Alasan: ...
     """
-    answer = _valid_text(answer)
-    cards_html = build_retrieved_cards(results)
+    blocks = re.split(r"^###\s+", answer_text, flags=re.MULTILINE)
+    parsed = []
+    for block in blocks[1:]:
+        lines = block.strip().split("\n", 1)
+        title = lines[0].strip().strip("[]")
+        body = lines[1].strip() if len(lines) > 1 else ""
+        if title:
+            parsed.append({"title": title, "body": body})
+    return parsed
 
-    if not cards_html:
-        return answer
 
-    if answer:
-        return f"""
-        <div class="anirag-answer">{answer}</div>
-        {cards_html}
-        """
+def match_to_retrieved(parsed_title: str, retrieved: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """
+    Mencocokkan judul yang dihasilkan LLM ke metadata hasil retrieval (exact/substring).
+    """
+    title_lower = parsed_title.strip().lower()
+    for d in retrieved:
+        # Ambil metadata
+        meta = d.get("metadata", d) if isinstance(d, dict) else {}
+        candidates = [t for t in [meta.get("title"), meta.get("title_english")] if t]
+        for c in candidates:
+            c_lower = str(c).strip().lower()
+            if c_lower == title_lower or c_lower in title_lower or title_lower in c_lower:
+                return meta
+    return None
 
-    return cards_html
+
+def build_interleaved_response(answer_text: str, retrieved: list[dict[str, Any]]) -> str:
+    """
+    Menyusun jawaban: Tiap rekomendasi (### Judul + Plot + Alasan)
+    diikuti LANGSUNG oleh poster Markdown dan badge metadata (skor, genre, tema).
+    """
+    parsed = parse_structured_answer(answer_text)
+    
+    # Fallback jika LLM tidak menggunakan format '### Judul'
+    if not parsed:
+        return answer_text
+
+    parts = []
+    n_matched = 0
+
+    for item in parsed:
+        meta = match_to_retrieved(item["title"], retrieved)
+        parts.append(f"### {item['title']}")
+        
+        if item["body"]:
+            parts.append(item["body"])
+            
+        if meta and meta.get("image_url"):
+            n_matched += 1
+            image_url = meta.get("image_url")
+            
+            # Buat caption metadata singkat (Skor | Genre | Tema)
+            meta_bits = []
+            score = meta.get("score") or meta.get("mal_score")
+            if score:
+                try:
+                    s_float = float(score)
+                    if not math.isnan(s_float) and s_float > 0:
+                        meta_bits.append(f"★ {s_float:.2f}")
+                except (TypeError, ValueError):
+                    pass
+
+            genres = meta.get("genres")
+            if genres and str(genres).lower() != "nan":
+                meta_bits.append(" | ".join(str(genres).split("|")[:3]))
+
+            themes = meta.get("themes")
+            if themes and str(themes).lower() != "nan":
+                meta_bits.append(" | ".join(str(themes).split("|")[:2]))
+
+            # Sisipkan poster Markdown
+            parts.append(f"![{item['title']}]({image_url})")
+            if meta_bits:
+                parts.append(f"_{' — '.join(meta_bits)}_")
+                
+        parts.append("---")
+
+    if parts and parts[-1] == "---":
+        parts.pop()
+
+    # Warning jika LLM berhalusinasi judul yang tidak ada di index
+    if n_matched == 0 and len(parsed) > 0:
+        parts.append(
+            "\n---\n⚠️ _Catatan: Rekomendasi di atas tidak dapat diverifikasi dari basis data kami._"
+        )
+
+    return "\n\n".join(parts).strip()
 
 
 # ============================================================
