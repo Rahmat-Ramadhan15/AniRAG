@@ -785,6 +785,7 @@ with gr.Blocks(title=APP_TITLE, theme=theme, css=CUSTOM_CSS, js=CLEANUP_JS,) as 
                 show_label=False,
                 avatar_images=None,
                 placeholder=EMPTY_STATE_HTML,
+                sanitize_html=False,
             )
 
         with gr.Column(elem_id="bottom-dock"):
