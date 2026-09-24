@@ -766,7 +766,7 @@ theme = gr.themes.Soft(
 # GRADIO APP BUILD (Struktur UI Referensi)
 # ============================================================
 
-with gr.Blocks(title=APP_TITLE, theme=theme) as demo:
+with gr.Blocks(title=APP_TITLE, theme=theme, css=CUSTOM_CSS, js=CLEANUP_JS,) as demo:
     with gr.Column(elem_id="page-wrap"):
         gr.HTML(
             '<div id="app-header">'
@@ -840,4 +840,4 @@ if __name__ == "__main__":
     print("[INFO] Menjalankan aplikasi...")
 
     share_mode = os.environ.get("GRADIO_SHARE") == "1"
-    demo.launch(css=CUSTOM_CSS, js=CLEANUP_JS, share=True)
+    demo.launch(share=True)
